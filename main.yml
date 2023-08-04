@@ -1,0 +1,83 @@
+---
+- name: Jinja playbook
+  hosts: all
+  remote_user: sstringer
+  become: true
+
+  tasks:
+    - name: Gather package facts
+      ansible.builtin.package_facts:
+
+    - name: Register password file
+      ansible.builtin.command:
+        cat /etc/passwd
+      register: int_reg_cat_passwd
+      changed_when: false
+      no_log: true
+
+    - name: Set user count fact
+      ansible.builtin.set_fact:
+        # Count all lines that look like a valid user entry
+        int_fact_user_count: "{{ int_reg_cat_passwd.stdout | ansible.builtin.regex_findall('^(.*:)+(.*)$', multiline=true) | length }}"
+
+    - name: Set mount facts
+      ansible.builtin.set_fact:
+        int_fact_mounts: []
+
+    - name: Add mounts object
+      ansible.builtin.set_fact:
+        int_fact_mounts: "{{ int_fact_mounts +
+            [{
+              'fstype': item.fstype,
+              'size': item.size_total,
+              'used': (item.size_total - item.size_available),
+              'avail': item.size_available,
+              'mount': item.mount
+            }]
+          }}"
+      loop: "{{ ansible_mounts }}"
+
+    - name: Define device object
+      ansible.builtin.set_fact:
+        int_fact_devices: []
+
+    - name: Add disks devives
+      ansible.builtin.set_fact:
+        int_fact_devices: "{{ int_fact_devices +
+            [{
+              'device': item.key,
+              'sectors': item.value.sectors,
+              'sectorsize': item.value.sectorsize,
+              'totalsize': (item.value.sectors | int * item.value.sectorsize | int),
+              'vendor': item.value.vendor,
+              'wwn': item.value.wwn
+              }]
+          }}"
+      loop: "{{ ansible_devices | dict2items }}"
+      when: item.value.model != None
+
+    - name: Define sysinfo object
+      ansible.builtin.set_fact:
+        int_fact_sysinfo: {}
+
+    - name: Add data to sysinfo
+      ansible.builtin.set_fact:
+        int_fact_sysinfo: "{{ int_fact_sysinfo | combine({item.key: item.value}) }}"
+      loop:
+        - {'key':'uptime', 'value': "{{ ansible_uptime_seconds }}" }
+        - {'key':'date', 'value': "{{ ansible_date_time.iso8601_micro }}"}
+        - {'key':'os', 'value': "{{ ansible_distribution }} {{ ansible_distribution_version }}"}
+        - {'key':'user_count', 'value': "{{ int_fact_user_count }}"}
+        - {'key':'kernel', 'value': "{{ ansible_kernel }}"}
+        - {'key':'package_count', 'value': "{{ ansible_facts.packages | length }}"}
+        - {'key':'mounts', 'value': "{{ int_fact_mounts }}"}
+        - {'key':'disks', value: "{{ int_fact_devices }}"}
+
+    - name: Write sysinfo template
+      ansible.builtin.template:
+        src: jt.j2
+        dest: "/tmp/{{ inventory_hostname }}_jtest.json"
+        owner: root
+        group: root
+        mode: '0644'
+      delegate_to: localhost
