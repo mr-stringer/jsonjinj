@@ -25,3 +25,9 @@ The following information is collected:
   * totalsize (bytes)
   * vendor (disk vendor string)
   * wwn
+
+A simple template is used to write the data structure as JSON to /tmp on the
+ansible controler. The file name is based on the hostname and therefore the
+output file is overwritten on each run the playbook (unless the file content
+doesn't change, but as it contains the date down to the milisecond, this is
+unlikely)
